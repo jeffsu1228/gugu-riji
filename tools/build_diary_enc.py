@@ -16,6 +16,7 @@
 import argparse, base64, hashlib, json, os, re, secrets, shutil, subprocess, sys, tempfile
 from datetime import date
 from pathlib import Path
+from collections import Counter
 
 SITE = Path(__file__).resolve().parents[1]
 CN_NUM = "一二三四五六七八九十"
@@ -113,6 +114,22 @@ def date_for(p: Path, kind, lines):
     return max(ds) if ds else None
 
 
+# 每天滚动重抄的「未完成待办」类小节：不进加密日记（否则搜一个待办词每天都命中）。
+# 只认日记里的二级小标题（如「（五）未完成待办」，位于「二、今日总结」下），
+# 小节到下一个一级/二级标题为止；正文、洞察建议、周记的「下周计划」都不动。
+TODO_HEAD = re.compile(
+    r"^(?:今日|当日|本日|近期|明日|遗留|滚动)?"
+    r"(?:未完成|未办结|未完)?(?:待办|事项|工作)?(?:事项|清单|列表)?$")
+TODO_MUST = re.compile(r"未完成|未办结|未完|待办")
+EXCLUDED = Counter()
+
+
+def is_todo_head(h: str) -> bool:
+    core = re.sub(r"^[（(][一二三四五六七八九十]+[）)]\s*", "", h.strip())
+    core = re.sub(r"[\s：:]+$", "", core)
+    return bool(core) and len(core) <= 8 and bool(TODO_MUST.search(core)) and bool(TODO_HEAD.match(core))
+
+
 def parse(p: Path):
     lines = read_lines(p)
     if not lines:
@@ -143,6 +160,9 @@ def parse(p: Path):
     out = []
     for s in sections:
         s["t"] = "\n".join(s["t"])
+        if kind == "day" and "top" in s and is_todo_head(s["h"]):
+            EXCLUDED[s["h"]] += 1
+            continue
         if not s["t"] and "top" not in s and s["h"]:
             continue
         if not s.get("top"): s.pop("top", None)
@@ -248,6 +268,8 @@ def main():
     print(f"files={len(files)} entries={len(diary)} days={len(days)} "
           f"range={days[-1]['date'] if days else '-'}..{days[0]['date'] if days else '-'} "
           f"week={sum(e['kind']=='week' for e in diary)} month={sum(e['kind']=='month' for e in diary)}")
+    for h, n in sorted(EXCLUDED.items()):
+        print(f"excluded-section {h} x{n}（按文件计，同日多版本会重复计）")
     for f, ex in failed:
         print("FAILED", f, ex)
 

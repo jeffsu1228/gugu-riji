@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="咕咕日迹">
+<meta name="format-detection" content="telephone=no">
+<title>咕咕日迹</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <!-- 今天 -->
+  <section class="page active" id="page-today">
+    <header class="large-title">
+      <div class="subtle" id="today-date"></div>
+      <h1>今天</h1>
+    </header>
+    <div id="weekend-bar" class="weekend-bar hidden">
+      <span>🌙 周末静默</span><span class="muted">晨报已暂停，可</span><button class="link" id="weekend-peek">临时查看</button>
+    </div>
+    <div class="section-head"><h2>晨报待拍板</h2><span class="count" id="morning-count"></span></div>
+    <div id="morning-list" class="morning-list"></div>
+    <div class="section-head"><h2>日清单</h2><span class="count" id="todo-count"></span></div>
+    <div class="group" id="todo-list"></div>
+    <p class="footnote">左滑条目：推明天 / 转咕咕</p>
+    <div class="section-head" id="done-head"><h2>已完成</h2><span class="count" id="done-count"></span></div>
+    <div class="group" id="done-list"></div>
+  </section>
+
+  <!-- 跟办 -->
+  <section class="page" id="page-follow">
+    <header class="large-title"><div class="subtle">清收 · 节点 · 在办</div><h1>跟办</h1></header>
+    <div class="segmented" id="follow-seg">
+      <button data-seg="clean" class="on">清收</button>
+      <button data-seg="node">合同节点</button>
+      <button data-seg="gugu">咕咕在办</button>
+    </div>
+    <div id="follow-summary" class="summary"></div>
+    <div id="follow-list" class="cards"></div>
+  </section>
+
+  <!-- 日记 -->
+  <section class="page" id="page-diary">
+    <header class="large-title"><div class="subtle">随手记，晚上咕咕会收</div><h1>日记</h1></header>
+    <div class="searchbar"><span class="mag">⌕</span><input id="diary-filter" type="search" placeholder="筛选日记"></div>
+    <div class="composer">
+      <textarea id="diary-input" rows="2" placeholder="写一条…"></textarea>
+      <button class="btn-primary" id="diary-save">记下</button>
+    </div>
+    <div id="diary-timeline"></div>
+  </section>
+
+  <!-- 搜索 -->
+  <section class="page" id="page-search">
+    <header class="large-title"><div class="subtle">待办 · 日记 · 跟办</div><h1>搜索</h1></header>
+    <div class="searchbar"><span class="mag">⌕</span><input id="search-input" type="search" placeholder="搜罗婷、揭东、S340…"></div>
+    <div id="search-results"><p class="empty">输入关键词，同时搜三处。</p></div>
+  </section>
+</div>
+
+<!-- 浮动 + -->
+<button id="fab" aria-label="记一笔">+</button>
+
+<!-- Tab 栏 -->
+<nav class="tabbar">
+  <button data-tab="today" class="on"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M9 3v4M15 3v4"/></svg><span>今天</span></button>
+  <button data-tab="follow"><svg viewBox="0 0 24 24"><path d="M5 6h14M5 12h14M5 18h9"/><circle cx="19" cy="18" r="1.6"/></svg><span>跟办</span></button>
+  <button data-tab="diary"><svg viewBox="0 0 24 24"><path d="M6 3h10l3 3v15H6z"/><path d="M9 10h7M9 14h7M9 18h4"/></svg><span>日记</span></button>
+  <button data-tab="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg><span>搜索</span></button>
+</nav>
+
+<!-- 底部弹层 -->
+<div id="sheet-mask" class="mask"></div>
+<div id="sheet" class="sheet" role="dialog" aria-label="记一笔">
+  <div class="grabber"></div>
+  <div class="sheet-head">
+    <button class="link" id="sheet-cancel">取消</button>
+    <strong>记一笔</strong>
+    <button class="link bold" id="sheet-save">保存</button>
+  </div>
+  <textarea id="sheet-input" rows="5" placeholder="随手写…&#10;以「待办：」开头 → 进日清单；否则进日记"></textarea>
+  <div class="route-hint" id="route-hint">→ 将存入 <b>日记</b></div>
+  <div class="quick">
+    <button data-prefix="待办：">待办：</button>
+    <button data-prefix="">日记</button>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

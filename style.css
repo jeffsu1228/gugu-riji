@@ -175,3 +175,49 @@ mark{background:rgba(255,204,0,.45);color:inherit;border-radius:3px;padding:0 1p
 .sync-hint code{font-size:11px;padding:1px 4px;border-radius:4px;background:rgba(0,0,0,.05)}
 .sync-settings-acts{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .sync-status{font-size:13px;color:var(--sub)}
+
+/* 工作日记全文（加密） */
+.lockcard{background:var(--card);border-radius:var(--rl);padding:22px 18px 18px;text-align:center;margin:4px 0 14px}
+.lockcard.compact{padding:14px 16px;text-align:left;border-radius:var(--r)}
+.lockicon{font-size:34px;line-height:1;margin-bottom:8px}
+.locktitle{font-weight:600;font-size:17px}
+.locksub{color:var(--sub);font-size:14px;margin:4px 0 14px}
+.lockcard.compact .locksub{margin:2px 0 10px;font-size:13px}
+.lockform{display:flex;gap:8px;max-width:360px;margin:0 auto}
+.lockcard.compact .lockform{margin:0;max-width:none}
+.lockform input{flex:1;min-width:0;border:0;outline:none;background:var(--fill);border-radius:10px;padding:9px 12px;font-size:17px;-webkit-appearance:none}
+.lockform .btn-primary{border-radius:10px;padding:8px 16px}
+.lockform .btn-primary:disabled{opacity:.6}
+.lockerr{color:var(--red);font-size:14px;min-height:18px;margin-top:8px}
+.lockcard.compact .lockerr{min-height:0}
+.unlocked-bar{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--sub);margin:0 4px 6px}
+.day.month{font-size:20px;font-weight:700;color:var(--text);margin:22px 4px 8px}
+.dlist{display:flex;flex-direction:column;gap:8px}
+.dcard{background:var(--card);border-radius:var(--r);overflow:hidden}
+.dcard.note{padding:11px 14px}
+.dhead{display:block;width:100%;text-align:left;padding:11px 34px 11px 14px;position:relative}
+.dhead .chev{position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--gray);font-size:22px;transition:transform .2s}
+.dcard.open .dhead .chev{transform:translateY(-50%) rotate(90deg)}
+.dmeta{font-size:13px;color:var(--sub);margin-bottom:3px}
+.dmeta b{color:var(--text);font-weight:600}
+.kind{display:inline-block;font-size:11px;padding:1px 6px;border-radius:10px;background:var(--fill);color:var(--sub);margin-left:4px;vertical-align:1px}
+.kind.k-week{color:var(--indigo)}.kind.k-month{color:var(--orange)}.kind.k-note{color:var(--green)}
+.dsum{font-size:15px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.dcard.open .dsum{-webkit-line-clamp:unset;display:block}
+.dnote{font-size:15px;line-height:1.45;white-space:pre-wrap;word-break:break-word}
+.dbody:empty{display:none}
+.dbody{padding:2px 14px 14px;box-shadow:inset 0 .5px 0 var(--sep)}
+.dfull-title{font-size:13px;color:var(--sub);margin:10px 0 2px}
+.dtop{font-weight:700;font-size:16px;margin:16px 0 4px}
+.dsec{padding:4px 6px;margin:0 -6px;border-radius:8px;transition:background .6s}
+.dsec.flash{background:rgba(0,122,255,.12)}
+.dh{font-weight:600;font-size:15px;margin-top:8px}
+.dt{font-size:15px;line-height:1.6;white-space:pre-wrap;word-break:break-word;margin-top:2px}
+.snip{font-size:14px;line-height:1.5;color:var(--text);padding:0 14px 10px;word-break:break-word}
+.res .snip{padding:6px 0 0}
+.dres{cursor:pointer}
+.dres .dmeta{margin-bottom:0}
+.diary-key-set{border-top:.5px solid var(--sep);margin-top:14px;padding-top:12px}
+.diary-key-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+.dk-label{font-size:13px;color:var(--sub);font-weight:600}
+.dcard.open .dhead .dsum{display:none}

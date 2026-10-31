@@ -113,7 +113,8 @@ def build_diary(n_files=5):
 
 def main():
     clean = build_clean()
-    diary = build_diary()
+    # 日记全文改为加密发布（tools/build_diary_enc.py → data/diary.enc.json），extras 不再带明文日记
+    diary = []
     extras = {
         "updatedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
         "morning": [],
@@ -127,7 +128,7 @@ def main():
             "guguNote": "暂无系统在办项；手机「转咕咕」会记到本机。",
         },
         "diary": diary,
-        "diaryNote": "近 5 份工作日记摘录（摘要＋分节首句）。",
+        "diaryNote": "工作日记全文已加密，输入口令后可看、可搜。",
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(extras, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

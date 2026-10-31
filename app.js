@@ -1,4 +1,4 @@
-/* 咕咕日迹 · 真日清单（rqd→daily）+ 真清收/日记摘录；勾选 → webhook 同步 */
+/* 咕咕日迹 · 真日清单（rqd→daily）+ 真清收 + 工作日记全文（AES-GCM 加密，口令解锁）；勾选 → webhook 同步 */
 (() => {
 const KEY = 'gugu-riji.v1';
 const DAILY_CACHE_KEY = 'gugu-riji.daily.cache.v1';
@@ -36,6 +36,7 @@ try {
   if (!db.follow) db.follow = emptyDb().follow;
   if (!Array.isArray(db.morning)) db.morning = [];
   if (!Array.isArray(db.diary)) db.diary = [];
+  db.diary = db.diary.filter(d => d.src !== '工作日记'); // 旧版明文摘录不再留在本机
 } catch { db = emptyDb(); }
 const save = () => localStorage.setItem(KEY, JSON.stringify(db));
 
@@ -270,16 +271,17 @@ function shortDate(iso) {
   return `${Number(m)}/${Number(d)}`;
 }
 
-$$('.tabbar button').forEach(b => b.addEventListener('click', () => {
-  $$('.tabbar button').forEach(x => x.classList.toggle('on', x === b));
-  $$('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + b.dataset.tab));
+function switchTab(tab, { focus } = {}) {
+  $$('.tabbar button').forEach(x => x.classList.toggle('on', x.dataset.tab === tab));
+  $$('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + tab));
   window.scrollTo(0, 0);
-  const tab = b.dataset.tab;
-  if (tab === 'search') setTimeout(() => $('#search-input').focus(), 50);
+  if (tab === 'search' && focus && diaryEntries) setTimeout(() => $('#search-input').focus(), 50);
   // 随时同步：进今天/跟办/日记都重新拉 JSON（cache-bust）
   if (tab === 'today') { loadDaily(); loadExtras(); }
   else if (tab === 'follow' || tab === 'diary') { loadExtras(); }
-}));
+  if (tab === 'diary' || tab === 'search') ensureDiary();
+}
+$$('.tabbar button').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab, { focus: true })));
 
 const now = new Date();
 const isWeekend = now.getDay() === 0 || now.getDay() === 6;
@@ -558,54 +560,306 @@ function renderFollow() {
   $('#follow-list').innerHTML = html;
 }
 
+/* ===== 工作日记全文（加密）+ 模糊搜索 ===== */
+const DIARY_KEY_KEY = 'gugu-riji.diary.key.v1';
+const KIND_LABEL = { day: '日记', week: '周记', month: '月记' };
+let diaryEnc = null, diaryEntries = null, diarySig = '', diaryLoading = null, diaryOpen = new Set(), diaryFocus = null, pendingScroll = null;
+const b64d = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const b64e = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+const cryptoOk = () => !!(window.crypto && crypto.subtle && window.isSecureContext !== false);
+const SKIP_RE = /[\s\p{P}\p{S}]/u;
+function normMap(s) {
+  let n = ''; const map = [];
+  s = String(s || '');
+  for (let i = 0; i < s.length; i++) {
+    let ch = s[i];
+    if (SKIP_RE.test(ch)) continue;
+    const c = ch.charCodeAt(0);
+    if (c >= 0xFF01 && c <= 0xFF5E) ch = String.fromCharCode(c - 0xFEE0); // 全角→半角
+    n += ch.toLowerCase(); map.push(i);
+  }
+  return { n, map };
+}
+function queryTerms(q) { return String(q || '').trim().split(/\s+/).map(t => normMap(t).n).filter(Boolean); }
+// 在原文中找所有词的命中区间 [start,end)
+function findRanges(text, terms, nm) {
+  nm = nm || normMap(text); const out = [];
+  terms.forEach(t => {
+    let i = nm.n.indexOf(t);
+    while (i !== -1 && out.length < 400) { out.push([nm.map[i], nm.map[i + t.length - 1] + 1, t]); i = nm.n.indexOf(t, i + t.length); }
+  });
+  return out.sort((a, b) => a[0] - b[0]);
+}
+// 近似：字按顺序出现在一小段内（短词兜底）
+function looseRanges(text, term, nm) {
+  nm = nm || normMap(text); const out = []; const win = term.length * 4; const n = nm.n;
+  for (let s = n.indexOf(term[0]); s !== -1 && out.length < 50; s = n.indexOf(term[0], s + 1)) {
+    let j = s, ok = true; const pos = [s];
+    for (let k = 1; k < term.length; k++) { j = n.indexOf(term[k], j + 1); if (j === -1 || j - s > win) { ok = false; break; } pos.push(j); }
+    if (ok) pos.forEach(p => out.push([nm.map[p], nm.map[p] + 1, term]));
+  }
+  return out.sort((a, b) => a[0] - b[0]);
+}
+function renderMarked(text, ranges, from = 0, to = text.length) {
+  const rs = ranges.filter(r => r[1] > from && r[0] < to).map(r => [Math.max(r[0], from), Math.min(r[1], to)]).sort((a, b) => a[0] - b[0]);
+  let out = '', pos = from;
+  rs.forEach(([a, b]) => { if (b <= pos) return; a = Math.max(a, pos); out += esc(text.slice(pos, a)) + '<mark>' + esc(text.slice(a, b)) + '</mark>'; pos = b; });
+  return out + esc(text.slice(pos, to));
+}
+function hlTerms(text, terms) { text = String(text || ''); return terms.length ? renderMarked(text, findRanges(text, terms)) : esc(text); }
+function matchText(text, terms) { const n = normMap(text).n; return terms.every(t => n.includes(t)); }
+function prepEntry(e) {
+  const blocks = [];
+  if (e.summary) blocks.push({ h: '', top: '', text: e.summary });
+  (e.sections || []).forEach(s => blocks.push({ h: s.h || '', top: s.top || '', text: s.t || '' }));
+  blocks.forEach(b => { b.full = (b.h ? b.h + '\n' : '') + b.text; b.nm = normMap(b.full); });
+  e.blocks = blocks;
+  e.allN = normMap(e.title).n + '\u0001' + blocks.map(b => b.nm.n).join('\u0001');
+  return e;
+}
+function setDiary(data) { diaryEntries = (data.entries || []).map(prepEntry); }
+function entryMatch(e, terms) { return terms.every(t => e.allN.includes(t)); }
+// 每天最多 n 段命中片段
+function entrySnippets(e, terms, loose, n = 3) {
+  const snips = [];
+  e.blocks.forEach((b, bi) => {
+    const rs = loose ? looseRanges(b.full, terms[0], b.nm) : findRanges(b.full, terms, b.nm);
+    if (!rs.length) return;
+    const distinct = new Set(rs.map(r => r[2])).size;
+    let last = -1;
+    rs.forEach(r => {
+      if (r[0] < last) return;
+      const from = Math.max(0, r[0] - 28), to = Math.min(b.full.length, r[1] + 56);
+      snips.push({ bi, distinct, html: (from > 0 ? '…' : '') + renderMarked(b.full, rs, from, to).replace(/\n/g, ' ') + (to < b.full.length ? '…' : '') });
+      last = to;
+    });
+  });
+  snips.sort((a, b) => b.distinct - a.distinct || a.bi - b.bi);
+  return snips.slice(0, n);
+}
+function diaryDateLabel(e) {
+  const [y, m, d] = e.date.split('-').map(Number);
+  const w = '日一二三四五六'[new Date(y, m - 1, d).getDay()];
+  return e.kind === 'day' ? `${m}月${d}日 周${w}` : esc(String(e.title || '').replace(/^\d{4}年/, '')) || `${m}月${d}日`;
+}
+async function fetchDiaryEnc() {
+  try {
+    const r = await fetch('./data/diary.enc.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    diaryEnc = await r.json();
+  } catch { /* 离线：SW 会回退到缓存；仍失败则保持上次 */ }
+  return diaryEnc;
+}
+async function deriveKey(pass, enc) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64d(enc.salt), iterations: enc.iter, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: 256 }, true, ['decrypt']);
+}
+async function decryptWith(key, enc) {
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64d(enc.iv) }, key, b64d(enc.ct));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+async function tryCachedKey() {
+  let c = null; try { c = JSON.parse(localStorage.getItem(DIARY_KEY_KEY)); } catch {}
+  if (!c || !diaryEnc || c.salt !== diaryEnc.salt || c.iter !== diaryEnc.iter) return false;
+  try {
+    const key = await crypto.subtle.importKey('raw', b64d(c.k), { name: 'AES-GCM' }, false, ['decrypt']);
+    setDiary(await decryptWith(key, diaryEnc)); diarySig = diaryEnc.iv; return true;
+  } catch { localStorage.removeItem(DIARY_KEY_KEY); return false; }
+}
+async function unlockWith(pass) {
+  if (!diaryEnc) await fetchDiaryEnc();
+  if (!diaryEnc) throw new Error('nodata');
+  const key = await deriveKey(pass, diaryEnc);
+  let data; try { data = await decryptWith(key, diaryEnc); } catch { return false; }
+  const raw = new Uint8Array(await crypto.subtle.exportKey('raw', key));
+  localStorage.setItem(DIARY_KEY_KEY, JSON.stringify({ salt: diaryEnc.salt, iter: diaryEnc.iter, k: b64e(raw) }));
+  setDiary(data); diarySig = diaryEnc.iv; return true;
+}
+function lockDiary() {
+  localStorage.removeItem(DIARY_KEY_KEY); diaryEntries = null; diarySig = ''; diaryOpen.clear(); diaryFocus = null;
+  renderDiary(); renderSearch(); renderDiaryKeyStatus();
+}
+function ensureDiary() {
+  if (diaryLoading) return diaryLoading;
+  diaryLoading = (async () => {
+    await fetchDiaryEnc();
+    if (diaryEnc && cryptoOk() && diaryEnc.iv !== diarySig) {
+      const ok = await tryCachedKey();
+      if (!ok && diaryEntries) { diaryEntries = null; diarySig = ''; }
+    }
+    renderDiary(); renderSearch(); renderDiaryKeyStatus();
+  })().finally(() => { diaryLoading = null; });
+  return diaryLoading;
+}
+function lockCardHtml(where) {
+  if (!cryptoOk()) return `<div class="lockcard"><div class="lockicon">🔒</div><div class="locktitle">工作日记已加密</div><div class="locksub">这个浏览器不支持解密，请用 Safari 打开 https 站点。</div></div>`;
+  const compact = where === 'search';
+  return `<div class="lockcard${compact ? ' compact' : ''}">
+    ${compact ? '' : '<div class="lockicon">🔒</div>'}
+    <div class="locktitle">${compact ? '🔒 日记全文未解锁' : '工作日记已加密'}</div>
+    <div class="locksub">${compact ? '输入口令后，搜索会包含全部工作日记。' : '输入口令后可看全文、可搜索。本机输一次就记住。'}</div>
+    <form class="lockform" autocomplete="on">
+      <input type="password" name="password" autocomplete="current-password" placeholder="口令" enterkeyhint="go" aria-label="日记口令">
+      <button class="btn-primary" type="submit">解锁</button>
+    </form>
+    <div class="lockerr" aria-live="polite"></div>
+  </div>`;
+}
+document.addEventListener('submit', async ev => {
+  const form = ev.target.closest && ev.target.closest('.lockform'); if (!form) return;
+  ev.preventDefault();
+  const inp = form.querySelector('input'), btn = form.querySelector('button'), err = form.parentElement.querySelector('.lockerr');
+  const v = inp.value; if (!v) { err.textContent = '先输口令'; return; }
+  btn.disabled = true; btn.textContent = '解锁中…'; err.textContent = '';
+  let ok = false;
+  try { ok = await unlockWith(v); } catch { err.textContent = '日记数据没加载到，联网后再试'; btn.disabled = false; btn.textContent = '解锁'; return; }
+  if (!ok) { err.textContent = '口令不对'; inp.select(); btn.disabled = false; btn.textContent = '解锁'; haptic(); return; }
+  inp.value = ''; inp.blur(); toast('已解锁'); haptic();
+  renderDiary(); renderSearch(); renderDiaryKeyStatus();
+});
+function renderDiaryKeyStatus() {
+  const st = $('#diary-key-status'); if (!st) return;
+  st.textContent = diaryEntries ? `已解锁 · ${diaryEntries.length} 篇` : (localStorage.getItem(DIARY_KEY_KEY) ? '已记住口令' : '未解锁');
+}
+
+function blockHtml(e, b, bi, terms) {
+  const rs = terms.length ? findRanges(b.full, terms, b.nm) : [];
+  const head = b.h ? b.h : '';
+  const bodyStart = head ? head.length + 1 : 0;
+  const top = b.top && (bi === 0 || e.blocks[bi - 1].top !== b.top) ? `<div class="dtop">${esc(b.top)}</div>` : '';
+  return `${top}<div class="dsec" data-sec="${bi}">${head ? `<div class="dh">${renderMarked(b.full, rs, 0, head.length)}</div>` : ''}<div class="dt">${renderMarked(b.full, rs, bodyStart, b.full.length)}</div></div>`;
+}
+function entryBodyHtml(e, terms) {
+  return `<div class="dfull-title">${esc(e.title)}</div>` + e.blocks.map((b, bi) => blockHtml(e, b, bi, terms)).join('');
+}
 function renderDiary() {
-  const q = $('#diary-filter').value.trim();
-  const list = (db.diary || []).filter(d => !q || d.text.toLowerCase().includes(q.toLowerCase())).sort((a, b) => b.ts - a.ts);
-  if (!list.length) {
-    $('#diary-timeline').innerHTML = `<p class="empty">${q ? '没有匹配的日记' : (db.diaryNote || '还没有日记')}</p>`;
+  const tl = $('#diary-timeline'); if (!tl) return;
+  const lock = $('#diary-lock');
+  const terms = queryTerms($('#diary-filter').value);
+  if (lock) lock.innerHTML = diaryEntries ? `<div class="unlocked-bar"><span>🔓 工作日记 ${diaryEntries.length} 篇（${diaryEntries.filter(e => e.kind === 'day').length} 天）</span><button type="button" class="link" data-act="relock">锁定</button></div>` : lockCardHtml('diary');
+  const items = [];
+  (diaryEntries || []).forEach(e => { if (!terms.length || entryMatch(e, terms)) items.push({ w: e, date: e.date, ts: 0 }); });
+  (db.diary || []).forEach(d => {
+    if (d.src === '工作日记') return;
+    if (!terms.length || matchText(d.text, terms)) items.push({ u: d, date: ymd(new Date(d.ts)), ts: d.ts });
+  });
+  items.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.ts - a.ts)));
+  if (!items.length) {
+    tl.innerHTML = `<p class="empty">${terms.length ? '没有匹配的日记' : (diaryEntries ? '还没有日记' : (db.diaryNote || '还没有日记'))}</p>`;
     return;
   }
-  let html = '', cur = '';
-  list.forEach(d => {
-    const lab = dayLabel(d.ts);
-    if (lab !== cur) { if (cur) html += '</div>'; html += `<div class="day">${lab}</div><div class="tl">`; cur = lab; }
-    html += `<div class="entry"><div class="time">${hm(d.ts)}${d.src ? `<span class="src">· ${esc(d.src)}</span>` : ''}</div><div>${hl(d.text, q)}</div></div>`;
+  let html = '', curM = '';
+  items.forEach(it => {
+    const [y, m] = it.date.split('-').map(Number); const mk = `${y}年${m}月`;
+    if (mk !== curM) { if (curM) html += '</div>'; html += `<div class="day month">${mk}</div><div class="dlist">`; curM = mk; }
+    if (it.u) {
+      const d = it.u;
+      html += `<div class="dcard note"><div class="dmeta">${dayLabel(d.ts)} ${hm(d.ts)} <span class="kind k-note">${esc(d.src || '随手记')}</span></div><div class="dnote">${hlTerms(d.text, terms)}</div></div>`;
+      return;
+    }
+    const e = it.w; const open = diaryOpen.has(e.id);
+    const fterms = diaryFocus && diaryFocus.id === e.id ? diaryFocus.terms : terms;
+    const sum = e.kind === 'day' ? (e.summary || (e.blocks[0] && e.blocks[0].text) || '') : e.title;
+    const snips = terms.length && !open ? entrySnippets(e, terms, false, 2) : [];
+    html += `<div class="dcard${open ? ' open' : ''}" data-id="${esc(e.id)}">
+      <button type="button" class="dhead"><div class="dmeta">${diaryDateLabel(e)} <span class="kind k-${e.kind}">${KIND_LABEL[e.kind] || ''}</span></div>
+        <div class="dsum">${hlTerms(sum, terms)}</div><span class="chev">›</span></button>
+      ${snips.map(s => `<div class="snip" data-sec="${s.bi}">${s.html}</div>`).join('')}
+      <div class="dbody">${open ? entryBodyHtml(e, fterms) : ''}</div></div>`;
   });
-  $('#diary-timeline').innerHTML = html + '</div>';
+  tl.innerHTML = html + '</div>';
+  if (pendingScroll && Date.now() < pendingScroll.until) {
+    const card = $(`#diary-timeline .dcard[data-id="${CSS.escape(pendingScroll.id)}"]`);
+    if (card) scrollToSec(card, pendingScroll.sec, pendingScroll.flashed);
+    pendingScroll.flashed = true;
+  }
+}
+function toggleEntry(card, open, sec) {
+  const id = card.dataset.id; const e = (diaryEntries || []).find(x => x.id === id); if (!e) return;
+  if (open === undefined) open = !card.classList.contains('open');
+  if (open) {
+    diaryOpen.add(id);
+    const terms = diaryFocus && diaryFocus.id === id ? diaryFocus.terms : queryTerms($('#diary-filter').value);
+    card.querySelector('.dbody').innerHTML = entryBodyHtml(e, terms);
+    card.classList.add('open'); $$('.snip', card).forEach(s => s.remove());
+    if (sec !== undefined) scrollToSec(card, sec);
+  } else {
+    diaryOpen.delete(id); card.classList.remove('open'); card.querySelector('.dbody').innerHTML = '';
+    if (diaryFocus && diaryFocus.id === id) diaryFocus = null;
+  }
+}
+function scrollToSec(card, sec, noFlash) {
+  const id = card.dataset.id;
+  setTimeout(() => {
+    const c = $(`#diary-timeline .dcard[data-id="${CSS.escape(id)}"]`) || card;
+    const el = c.querySelector(`.dsec[data-sec="${sec}"]`);
+    const target = (el && el.querySelector('mark')) || el || c;
+    const y = target.getBoundingClientRect().top + window.scrollY - window.innerHeight / 3;
+    window.scrollTo(0, Math.max(0, y));
+    if (el && !noFlash) { el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1800); }
+  }, 60);
+}
+$('#diary-timeline').addEventListener('click', ev => {
+  const snip = ev.target.closest('.snip');
+  if (snip) { const card = snip.closest('.dcard'); toggleEntry(card, true, Number(snip.dataset.sec)); return; }
+  const head = ev.target.closest('.dhead'); if (head) toggleEntry(head.closest('.dcard'));
+});
+$('#diary-lock').addEventListener('click', ev => { if (ev.target.closest('[data-act="relock"]')) { lockDiary(); toast('已锁定，本机需重新输口令'); } });
+function openDiary(id, sec, terms) {
+  diaryFocus = { id, terms }; diaryOpen.clear(); diaryOpen.add(id);
+  $('#diary-filter').value = '';
+  pendingScroll = { id, sec, until: Date.now() + 2500 };
+  switchTab('diary');
+  renderDiary();
 }
 function addDiary(text, src) {
   if (!db.diary) db.diary = [];
   db.diary.push({ id: uid(), ts: Date.now(), text, src });
   save(); renderDiary();
 }
-$('#diary-filter').addEventListener('input', renderDiary);
+$('#diary-filter').addEventListener('input', () => { diaryFocus = null; renderDiary(); });
 $('#diary-save').addEventListener('click', () => {
   const v = $('#diary-input').value.trim(); if (!v) return toast('先写点什么');
   addDiary(v); $('#diary-input').value = ''; toast('已记入日记');
 });
 
 function renderSearch() {
-  const q = $('#search-input').value.trim().toLowerCase();
-  const box = $('#search-results');
-  if (!q) { box.innerHTML = '<p class="empty">输入关键词，同时搜三处。</p>'; return; }
-  const has = s => s && s.toLowerCase().includes(q);
-  const dailyItems = flattenDailyItems().filter(t => !t.hide && (has(t.title) || has(t.note) || has(t.sectionName)));
-  const diary = (db.diary || []).filter(d => has(d.text)).sort((a, b) => b.ts - a.ts);
+  const box = $('#search-results'); if (!box) return;
+  const lock = $('#search-lock');
+  if (lock) lock.innerHTML = diaryEntries ? '' : lockCardHtml('search');
+  const terms = queryTerms($('#search-input').value);
+  if (!terms.length) { box.innerHTML = '<p class="empty">输入关键词；空格分开＝同时包含。<br>搜日清单、日记全文、跟办。</p>'; return; }
+  const dailyItems = flattenDailyItems().filter(t => !t.hide && matchText([t.title, t.note, t.sectionName].join(' '), terms));
+  const notes = (db.diary || []).filter(d => d.src !== '工作日记' && matchText(d.text, terms)).sort((a, b) => b.ts - a.ts);
+  let loose = false;
+  let hits = (diaryEntries || []).filter(e => entryMatch(e, terms));
+  if (!hits.length && diaryEntries && terms.length === 1 && terms[0].length >= 2 && terms[0].length <= 6) {
+    hits = diaryEntries.filter(e => e.blocks.some(b => looseRanges(b.full, terms[0], b.nm).length)); loose = hits.length > 0;
+  }
   const segName = { clean: '清收', node: '合同节点', gugu: '咕咕在办' };
   const follow = Object.entries(db.follow).filter(([k]) => !k.endsWith('Note')).flatMap(([k, arr]) =>
-    (Array.isArray(arr) ? arr : []).filter(i => has(i.name) || has(i.note)).map(i => ({ ...i, seg: k }))
+    (Array.isArray(arr) ? arr : []).filter(i => matchText([i.name, i.note, i.amount, i.state].join(' '), terms)).map(i => ({ ...i, seg: k }))
   );
-  const Q = $('#search-input').value.trim();
   let html = '';
+  if (hits.length) html += `<div class="res-head">工作日记 · ${hits.length} 篇${loose ? '（近似匹配）' : ''}</div><div class="group">` +
+    hits.map(e => `<div class="res dres" data-id="${esc(e.id)}"><div class="dmeta"><b>${diaryDateLabel(e)}</b> <span class="kind k-${e.kind}">${KIND_LABEL[e.kind] || ''}</span></div>` +
+      entrySnippets(e, terms, loose, 3).map(s => `<div class="snip" data-sec="${s.bi}">${s.html}</div>`).join('') + '</div>').join('') + '</div>';
+  if (notes.length) html += `<div class="res-head">随手记 · ${notes.length}</div><div class="group">` +
+    notes.map(d => `<div class="res"><div>${hlTerms(d.text, terms)}</div><div class="s">${dayLabel(d.ts)} ${hm(d.ts)}</div></div>`).join('') + '</div>';
   if (dailyItems.length) html += `<div class="res-head">日清单 · ${dailyItems.length}</div><div class="group">` +
-    dailyItems.map(t => `<div class="res"><div>${hl(t.title, Q)}</div><div class="s">${esc(t.sectionName)} · ${t.done ? '已勾' : '未完成'}</div></div>`).join('') + '</div>';
-  if (diary.length) html += `<div class="res-head">日记 · ${diary.length}</div><div class="group">` +
-    diary.map(d => `<div class="res"><div>${hl(d.text, Q)}</div><div class="s">${dayLabel(d.ts)} ${hm(d.ts)}</div></div>`).join('') + '</div>';
+    dailyItems.map(t => `<div class="res"><div>${hlTerms(t.title, terms)}</div><div class="s">${esc(t.sectionName)} · ${t.done ? '已勾' : '未完成'}</div></div>`).join('') + '</div>';
   if (follow.length) html += `<div class="res-head">跟办 · ${follow.length}</div><div class="group">` +
-    follow.map(i => `<div class="res"><div><span class="dot ${i.status || 'gray'}" style="display:inline-block;margin-right:6px"></span>${hl(i.name, Q)}</div><div class="s">${segName[i.seg] || i.seg} · ${esc(i.amount || i.state || '')}</div></div>`).join('') + '</div>';
-  box.innerHTML = html || '<p class="empty">没有找到</p>';
+    follow.map(i => `<div class="res"><div><span class="dot ${i.status || 'gray'}" style="display:inline-block;margin-right:6px"></span>${hlTerms(i.name, terms)}</div><div class="s">${segName[i.seg] || i.seg} · ${esc(i.amount || i.state || '')}</div></div>`).join('') + '</div>';
+  box.innerHTML = html || `<p class="empty">没有找到${diaryEntries ? '' : '（日记全文未解锁）'}</p>`;
 }
 $('#search-input').addEventListener('input', renderSearch);
+$('#search-results').addEventListener('click', ev => {
+  const r = ev.target.closest('.dres'); if (!r) return;
+  const snip = ev.target.closest('.snip');
+  const sec = snip ? Number(snip.dataset.sec) : Number((r.querySelector('.snip') || { dataset: { sec: 0 } }).dataset.sec);
+  openDiary(r.dataset.id, sec, queryTerms($('#search-input').value));
+});
 
 const TODO_RE = /^\s*待办[：:]\s*/;
 function openSheet() { $('#sheet').classList.add('show'); $('#sheet-mask').classList.add('show'); setTimeout(() => $('#sheet-input').focus(), 250); updateHint(); }
@@ -645,12 +899,9 @@ function applyExtras(data) {
     db.follow.gugu = (data.follow.gugu || []).concat(localGugu);
     db.follow.guguNote = data.follow.guguNote || '';
   }
-  if (Array.isArray(data.diary) && data.diary.length) {
-    // prefer bundled diary over empty; keep user-added (no src 工作日记 or 记一笔)
-    const user = (db.diary || []).filter(d => d.src === '记一笔' || (!d.src && d.id && String(d.id).length < 20));
-    db.diary = data.diary.concat(user);
-    db.diaryNote = data.diaryNote || '';
-  }
+  // 工作日记全文改走加密的 data/diary.enc.json；这里只保留本机随手记（去掉旧版明文摘录）
+  db.diary = (db.diary || []).filter(d => d.src !== '工作日记');
+  if (data.diaryNote) db.diaryNote = data.diaryNote;
   save();
 }
 
@@ -778,6 +1029,9 @@ function wireSyncUI() {
 
 renderMorning(); renderFollow(); renderDiary(); renderTodos(); renderSyncBar();
 wireSyncUI();
+renderDiaryKeyStatus();
+{ const rl = $('#diary-relock'); if (rl) rl.addEventListener('click', () => { lockDiary(); toast('已锁定，本机需重新输口令'); }); }
+ensureDiary();
 Promise.all([loadDaily(), loadExtras()]).then(() => renderSyncBar());
 // 回到前台时再拉一次
 document.addEventListener('visibilitychange', () => {
@@ -787,7 +1041,7 @@ document.addEventListener('visibilitychange', () => {
 });
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 window.guguReset = () => {
-  [KEY, DAILY_CACHE_KEY, EXTRAS_CACHE_KEY, OVERLAY_KEY, LOCAL_TODOS_KEY, PENDING_KEY, SYNC_CFG_KEY].forEach(k => localStorage.removeItem(k));
+  [KEY, DAILY_CACHE_KEY, EXTRAS_CACHE_KEY, OVERLAY_KEY, LOCAL_TODOS_KEY, PENDING_KEY, SYNC_CFG_KEY, DIARY_KEY_KEY].forEach(k => localStorage.removeItem(k));
   location.reload();
 };
 })();

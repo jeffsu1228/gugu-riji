@@ -52,6 +52,11 @@
         <button type="button" class="link" id="sync-test">试发一条</button>
         <span class="sync-status" id="sync-status"></span>
       </div>
+      <div class="diary-key-set">
+        <div class="diary-key-row"><span class="dk-label">日记口令</span><span class="sync-status" id="diary-key-status"></span>
+          <button type="button" class="link" id="diary-relock">锁定 / 忘记口令</button></div>
+        <p class="sync-hint">锁定后本机不再记住口令，下次看日记、搜日记需重新输入。口令忘了找咕咕。</p>
+      </div>
     </div>
     <div id="sync-bar" class="sync-bar hidden">
       <span id="sync-count">有未同步勾选</span>
@@ -81,8 +86,9 @@
 
   <!-- 日记 -->
   <section class="page" id="page-diary">
-    <header class="large-title"><div class="subtle">随手记，晚上咕咕会收</div><h1>日记</h1></header>
-    <div class="searchbar"><span class="mag">⌕</span><input id="diary-filter" type="search" placeholder="筛选日记"></div>
+    <header class="large-title"><div class="subtle">工作日记全文 · 随手记</div><h1>日记</h1></header>
+    <div id="diary-lock"></div>
+    <div class="searchbar"><span class="mag">⌕</span><input id="diary-filter" type="search" placeholder="筛选日记（空格分开多个词）"></div>
     <div class="composer">
       <textarea id="diary-input" rows="2" placeholder="写一条…"></textarea>
       <button class="btn-primary" id="diary-save">记下</button>
@@ -93,7 +99,8 @@
   <!-- 搜索 -->
   <section class="page" id="page-search">
     <header class="large-title"><div class="subtle">日清单 · 日记 · 跟办</div><h1>搜索</h1></header>
-    <div class="searchbar"><span class="mag">⌕</span><input id="search-input" type="search" placeholder="搜罗婷、揭东、S340…"></div>
+    <div class="searchbar"><span class="mag">⌕</span><input id="search-input" type="search" placeholder="搜罗婷、揭东 合同、S340…"></div>
+    <div id="search-lock"></div>
     <div id="search-results"><p class="empty">输入关键词，同时搜三处。</p></div>
   </section>
 </div>

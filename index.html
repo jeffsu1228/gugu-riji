@@ -29,11 +29,22 @@
     </div>
     <div class="section-head"><h2>晨报待拍板</h2><span class="count" id="morning-count"></span></div>
     <div id="morning-list" class="morning-list"></div>
-    <div class="section-head"><h2>日清单</h2><span class="count" id="todo-count"></span></div>
-    <div class="group" id="todo-list"></div>
-    <p class="footnote">左滑条目：推明天 / 转咕咕</p>
-    <div class="section-head" id="done-head"><h2>已完成</h2><span class="count" id="done-count"></span></div>
-    <div class="group" id="done-list"></div>
+    <div class="section-head">
+      <h2>日清单</h2>
+      <span class="count" id="todo-count"></span>
+    </div>
+    <div class="daily-source" id="daily-source"></div>
+    <div id="sync-bar" class="sync-bar hidden">
+      <span id="sync-count">有未同步勾选</span>
+      <button type="button" class="link bold" id="sync-copy">复制给咕咕</button>
+      <button type="button" class="link" id="sync-show">查看</button>
+    </div>
+    <div id="sync-panel" class="sync-panel hidden">
+      <pre id="sync-text"></pre>
+      <button type="button" class="btn-primary" id="sync-copied">已发给咕咕 · 清空队列</button>
+    </div>
+    <div id="daily-root"></div>
+    <p class="footnote">左滑条目：推明天 / 转咕咕 · 勾选仅本机暂存</p>
   </section>
 
   <!-- 跟办 -->
@@ -61,7 +72,7 @@
 
   <!-- 搜索 -->
   <section class="page" id="page-search">
-    <header class="large-title"><div class="subtle">待办 · 日记 · 跟办</div><h1>搜索</h1></header>
+    <header class="large-title"><div class="subtle">日清单 · 日记 · 跟办</div><h1>搜索</h1></header>
     <div class="searchbar"><span class="mag">⌕</span><input id="search-input" type="search" placeholder="搜罗婷、揭东、S340…"></div>
     <div id="search-results"><p class="empty">输入关键词，同时搜三处。</p></div>
   </section>
@@ -87,7 +98,7 @@
     <strong>记一笔</strong>
     <button class="link bold" id="sheet-save">保存</button>
   </div>
-  <textarea id="sheet-input" rows="5" placeholder="随手写…&#10;以「待办：」开头 → 进日清单；否则进日记"></textarea>
+  <textarea id="sheet-input" rows="5" placeholder="随手写…&#10;以「待办：」开头 → 进日清单（本机）；否则进日记"></textarea>
   <div class="route-hint" id="route-hint">→ 将存入 <b>日记</b></div>
   <div class="quick">
     <button data-prefix="待办：">待办：</button>

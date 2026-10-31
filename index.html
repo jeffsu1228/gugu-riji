@@ -31,12 +31,32 @@
     <div id="morning-list" class="morning-list"></div>
     <div class="section-head">
       <h2>日清单</h2>
-      <span class="count" id="todo-count"></span>
+      <div class="section-head-right">
+        <span class="count" id="todo-count"></span>
+        <button type="button" class="gear" id="sync-gear" aria-label="同步设置" title="同步设置">⚙</button>
+      </div>
     </div>
     <div class="daily-source" id="daily-source"></div>
+    <div id="sync-settings" class="sync-settings hidden">
+      <label class="sync-field">
+        <span>同步地址</span>
+        <input type="url" id="sync-url" placeholder="粘贴 Routine 的 webhook 完整 URL" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="sync-field">
+        <span>同步密钥 <em>（可选）</em></span>
+        <input type="password" id="sync-key" placeholder="若有 sender key 填这里" autocomplete="off" spellcheck="false">
+      </label>
+      <p class="sync-hint">从「咕咕日迹勾选同步」Routine 面板复制 webhook URL（及密钥）粘贴一次即可。密钥会以 <code>Authorization: Bearer</code> 头发送，同时附在查询参数 <code>?key=</code>。</p>
+      <div class="sync-settings-acts">
+        <button type="button" class="btn-primary" id="sync-save">保存</button>
+        <button type="button" class="link" id="sync-test">试发一条</button>
+        <span class="sync-status" id="sync-status"></span>
+      </div>
+    </div>
     <div id="sync-bar" class="sync-bar hidden">
       <span id="sync-count">有未同步勾选</span>
-      <button type="button" class="link bold" id="sync-copy">复制给咕咕</button>
+      <button type="button" class="link bold" id="sync-retry">重试同步</button>
+      <button type="button" class="link" id="sync-copy">复制给咕咕</button>
       <button type="button" class="link" id="sync-show">查看</button>
     </div>
     <div id="sync-panel" class="sync-panel hidden">
@@ -44,7 +64,7 @@
       <button type="button" class="btn-primary" id="sync-copied">已发给咕咕 · 清空队列</button>
     </div>
     <div id="daily-root"></div>
-    <p class="footnote">左滑条目：推明天 / 转咕咕 · 勾选仅本机暂存</p>
+    <p class="footnote">左滑：推明天 / 转咕咕 · 勾选即同步（需先在 ⚙ 填 webhook）</p>
   </section>
 
   <!-- 跟办 -->

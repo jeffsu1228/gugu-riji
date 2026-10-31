@@ -1,4 +1,4 @@
-/* 咕咕日迹 · 真日清单（rqd→daily）+ 真清收/日记摘录；勾选仅本机 overlay */
+/* 咕咕日迹 · 真日清单（rqd→daily）+ 真清收/日记摘录；勾选 → webhook 同步 */
 (() => {
 const KEY = 'gugu-riji.v1';
 const DAILY_CACHE_KEY = 'gugu-riji.daily.cache.v1';
@@ -6,6 +6,7 @@ const EXTRAS_CACHE_KEY = 'gugu-riji.extras.cache.v1';
 const OVERLAY_KEY = 'gugu-riji.daily.overlay.v1';
 const LOCAL_TODOS_KEY = 'gugu-riji.daily.local.v1';
 const PENDING_KEY = 'gugu-riji.daily.pending.v1';
+const SYNC_CFG_KEY = 'gugu-riji.sync.v1';
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const pad = n => String(n).padStart(2, '0');
@@ -46,12 +47,31 @@ try { localTodos = JSON.parse(localStorage.getItem(LOCAL_TODOS_KEY)) || {}; } ca
 let pending = [];
 try { pending = JSON.parse(localStorage.getItem(PENDING_KEY)) || []; } catch { pending = []; }
 if (!Array.isArray(pending)) pending = [];
+const DEFAULT_SYNC = {
+  url: 'https://api2.cursor.sh/automations/webhook/bacec434-c277-5510-a1eb-49b2a6cd1a03',
+  key: 'crsr_755a05d6d8729a87f3a3c80ce16a0488d5d2af9713b28e10f1cbe0291b8875a0',
+};
+let syncCfg = { url: DEFAULT_SYNC.url, key: DEFAULT_SYNC.key };
+try {
+  const raw = localStorage.getItem(SYNC_CFG_KEY);
+  if (raw) {
+    const sc = JSON.parse(raw);
+    if (sc && typeof sc === 'object') {
+      // 用户曾保存过则覆盖默认；允许清空（显式保存空地址）
+      syncCfg = {
+        url: String(sc.url != null ? sc.url : DEFAULT_SYNC.url).trim(),
+        key: String(sc.key != null ? sc.key : DEFAULT_SYNC.key),
+      };
+    }
+  }
+} catch { /* keep defaults */ }
 const saveOverlay = () => localStorage.setItem(OVERLAY_KEY, JSON.stringify(overlay));
 const saveLocalTodos = () => localStorage.setItem(LOCAL_TODOS_KEY, JSON.stringify(localTodos));
 const savePending = () => localStorage.setItem(PENDING_KEY, JSON.stringify(pending));
+const saveSyncCfg = () => localStorage.setItem(SYNC_CFG_KEY, JSON.stringify(syncCfg));
+function hasSyncUrl() { return !!(syncCfg.url && /^https?:\/\//i.test(syncCfg.url)); }
 function pushPending(entry) {
   pending.push({ ...entry, at: new Date().toISOString() });
-  // keep last 200
   if (pending.length > 200) pending = pending.slice(-200);
   savePending();
   renderSyncBar();
@@ -59,26 +79,123 @@ function pushPending(entry) {
 function pendingSummary() {
   if (!pending.length) return '（无待同步勾选）';
   const date = (daily && daily.date) || TODAY;
-  const lines = [`【咕咕日迹 · 勾选反馈】日清单 ${date} · ${pending.length} 条（仅本机，请咕咕改 JSON 后推 Pages）`];
+  const lines = [`【咕咕日迹 · 勾选反馈】日清单 ${date} · ${pending.length} 条（本机队列；无 webhook 时请发给咕咕）`];
   pending.forEach((p, i) => {
     const mark = p.done ? '☑' : '☐';
     lines.push(`${i + 1}. ${mark} [${p.section || ''}] ${p.title || p.id}${p.act && p.act !== 'toggle' ? ' · ' + p.act : ''}`);
   });
-  lines.push('— 静态 Pages 无法直写仓库；咕咕收到后请更新 daily-latest.json 并随时推送（不限早晨）。');
+  lines.push('— 有 webhook 时 App 会自动 POST；失败才进此队列。');
   return lines.join('\n');
+}
+function buildWebhookBody(items, date) {
+  return {
+    source: 'gugu-riji',
+    date: date || (daily && daily.date) || TODAY,
+    items: items.map(p => ({
+      id: p.id,
+      title: p.title || p.id,
+      section: p.section || '',
+      done: !!p.done,
+      action: p.act || p.action || 'toggle',
+    })),
+    ts: new Date().toISOString(),
+  };
+}
+function webhookRequestUrl() {
+  const base = syncCfg.url.trim();
+  if (!syncCfg.key) return base;
+  try {
+    const u = new URL(base);
+    if (!u.searchParams.has('key')) u.searchParams.set('key', syncCfg.key);
+    return u.toString();
+  } catch {
+    const sep = base.includes('?') ? '&' : '?';
+    return base + sep + 'key=' + encodeURIComponent(syncCfg.key);
+  }
+}
+async function postWebhook(body) {
+  if (!hasSyncUrl()) throw new Error('no-url');
+  const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
+  if (syncCfg.key) {
+    headers.Authorization = 'Bearer ' + syncCfg.key;
+    headers['X-Api-Key'] = syncCfg.key;
+  }
+  const res = await fetch(webhookRequestUrl(), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+    mode: 'cors',
+    credentials: 'omit',
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res;
+}
+async function syncEntries(entries, { silent } = {}) {
+  if (!entries || !entries.length) return true;
+  if (!hasSyncUrl()) {
+    renderSyncBar();
+    return false;
+  }
+  const date = entries[0].date || (daily && daily.date) || TODAY;
+  const body = buildWebhookBody(entries, date);
+  try {
+    await postWebhook(body);
+    const ids = new Set(entries.map(e => (e.at || '') + '|' + e.id + '|' + (e.act || '')));
+    pending = pending.filter(p => !ids.has((p.at || '') + '|' + p.id + '|' + (p.act || '')));
+    // also drop by identity if at missing
+    const sent = new Set(entries.map(e => e.id + '|' + (e.act || '') + '|' + String(!!e.done)));
+    pending = pending.filter(p => !sent.has(p.id + '|' + (p.act || '') + '|' + String(!!p.done)));
+    savePending();
+    renderSyncBar();
+    if (!silent) toast('已同步');
+    return true;
+  } catch (err) {
+    renderSyncBar();
+    if (!silent) toast('同步失败，已记在本地');
+    return false;
+  }
+}
+function queueAndSync(entry) {
+  const e = { ...entry, at: new Date().toISOString() };
+  pending.push(e);
+  if (pending.length > 200) pending = pending.slice(-200);
+  savePending();
+  renderSyncBar();
+  if (hasSyncUrl()) {
+    syncEntries([e]);
+  } else {
+    toast(entry.act === 'toggle'
+      ? (entry.done ? '已勾（本机；请先在 ⚙ 填同步地址）' : '已恢复未完成（本机）')
+      : (entry.act === 'tmr' ? '已推明天（本机；未配置同步）' : '已转咕咕（本机；未配置同步）'));
+  }
 }
 function renderSyncBar() {
   const bar = $('#sync-bar'); const panel = $('#sync-panel');
   if (!bar) return;
+  const copyBtn = $('#sync-copy');
+  const retryBtn = $('#sync-retry');
   if (!pending.length) {
     bar.classList.add('hidden');
     if (panel) panel.classList.add('hidden');
     return;
   }
   bar.classList.remove('hidden');
-  $('#sync-count').textContent = `有 ${pending.length} 条未同步给咕咕`;
+  const configured = hasSyncUrl();
+  $('#sync-count').textContent = configured
+    ? `有 ${pending.length} 条同步失败 / 待重试`
+    : `有 ${pending.length} 条未同步（未配置地址，可复制给咕咕）`;
+  if (retryBtn) retryBtn.classList.toggle('hidden', !configured);
+  if (copyBtn) {
+    // 有 URL 时复制仍作兜底，但不强调
+    copyBtn.classList.toggle('bold', !configured);
+  }
   if (panel && !panel.classList.contains('hidden')) {
     $('#sync-text').textContent = pendingSummary();
+  }
+  const st = $('#sync-status');
+  if (st && !st.dataset.locked) {
+    st.textContent = configured ? '已配置自动同步' : '未配置 · 勾选仅本机';
   }
 }
 
@@ -302,6 +419,14 @@ function findItem(id, src) {
   }
   return null;
 }
+function findSectionName(id, src) {
+  if (src === 'local') return '本机待办';
+  if (!daily) return '';
+  for (const sec of daily.sections || []) {
+    if ((sec.items || []).some(x => x.id === id)) return sec.name || sec.id || '';
+  }
+  return '';
+}
 
 function onTodoAction(e) {
   const b = e.target.closest('[data-act]'); if (!b) return;
@@ -318,20 +443,27 @@ function onTodoAction(e) {
     const cur = it ? itemDone(it, date) : !!ov(date, id).done;
     setOv(date, id, { done: !cur });
     if (src === 'local' && it) { it.done = !cur; saveLocalTodos(); }
-    pushPending({
+    const section = it
+      ? (it.sectionName || (findSectionName(id, src) || ''))
+      : '';
+    queueAndSync({
       act: 'toggle', id, date, done: !cur,
       title: it ? it.title : id,
-      section: it ? (it.sectionName || '') : '',
+      section,
       src,
     });
-    toast(!cur ? '已勾（本机；可点「复制给咕咕」同步）' : '已恢复未完成');
+    if (hasSyncUrl()) {
+      // toast comes from syncEntries
+    }
     setTimeout(renderTodos, 200);
     return;
   }
   if (b.dataset.act === 'tmr') {
     setOv(date, id, { hide: true, tag: 'tmr' });
-    pushPending({ act: 'tmr', id, date, title: it ? it.title : id, section: '', src, done: false });
-    toast('已推明天（本机暂隐）');
+    queueAndSync({
+      act: 'tmr', id, date, title: it ? it.title : id,
+      section: findSectionName(id, src) || '', src, done: false,
+    });
   }
   if (b.dataset.act === 'gugu') {
     setOv(date, id, { tag: 'gugu', hide: true });
@@ -339,8 +471,10 @@ function onTodoAction(e) {
     if (!db.follow.gugu) db.follow.gugu = [];
     db.follow.gugu.unshift({ name: title, amount: '', due: '待排', status: 'gray', state: '刚转入', note: '来自日清单（本机）' });
     save();
-    pushPending({ act: 'gugu', id, date, title, section: '', src, done: false });
-    toast('已转咕咕，进「跟办 · 咕咕在办」');
+    queueAndSync({
+      act: 'gugu', id, date, title,
+      section: findSectionName(id, src) || '', src, done: false,
+    });
   }
   row.classList.add('leaving');
   setTimeout(() => { renderTodos(); renderFollow(); }, 330);
@@ -556,7 +690,64 @@ async function loadExtras() {
   renderMorning(); renderFollow(); renderDiary();
 }
 
+function fillSyncForm() {
+  const u = $('#sync-url'); const k = $('#sync-key');
+  if (u) u.value = syncCfg.url || '';
+  if (k) k.value = syncCfg.key || '';
+  const st = $('#sync-status');
+  if (st) {
+    st.dataset.locked = '';
+    st.textContent = hasSyncUrl() ? '已配置自动同步' : '未配置 · 勾选仅本机';
+  }
+}
 function wireSyncUI() {
+  const gear = $('#sync-gear');
+  const settings = $('#sync-settings');
+  if (gear && settings) {
+    gear.addEventListener('click', () => {
+      settings.classList.toggle('hidden');
+      if (!settings.classList.contains('hidden')) fillSyncForm();
+    });
+  }
+  const saveBtn = $('#sync-save');
+  if (saveBtn) saveBtn.addEventListener('click', () => {
+    syncCfg = {
+      url: ($('#sync-url')?.value || '').trim(),
+      key: ($('#sync-key')?.value || ''),
+    };
+    saveSyncCfg();
+    const st = $('#sync-status');
+    if (st) { st.dataset.locked = ''; st.textContent = hasSyncUrl() ? '已保存 · 勾选即同步' : '已保存 · 仍无地址'; }
+    toast(hasSyncUrl() ? '同步地址已保存' : '已保存（未填有效 http(s) 地址）');
+    renderSyncBar();
+    if (hasSyncUrl() && pending.length) syncEntries([...pending], { silent: false });
+  });
+  const testBtn = $('#sync-test');
+  if (testBtn) testBtn.addEventListener('click', async () => {
+    syncCfg = {
+      url: ($('#sync-url')?.value || '').trim() || syncCfg.url,
+      key: ($('#sync-key')?.value || '') || syncCfg.key,
+    };
+    if (!hasSyncUrl()) return toast('请先填写同步地址');
+    const st = $('#sync-status');
+    if (st) { st.dataset.locked = '1'; st.textContent = '试发中…'; }
+    try {
+      await postWebhook(buildWebhookBody([{
+        id: 'ping', title: '咕咕日迹 · 连通性试发', section: '', done: false, act: 'ping',
+      }], (daily && daily.date) || TODAY));
+      if (st) { st.dataset.locked = ''; st.textContent = '试发成功'; }
+      toast('已同步');
+    } catch {
+      if (st) { st.dataset.locked = ''; st.textContent = '试发失败'; }
+      toast('同步失败，已记在本地');
+    }
+  });
+  const retryBtn = $('#sync-retry');
+  if (retryBtn) retryBtn.addEventListener('click', () => {
+    if (!pending.length) return toast('没有待同步条目');
+    if (!hasSyncUrl()) return toast('请先在 ⚙ 填写同步地址');
+    syncEntries([...pending]);
+  });
   const copyBtn = $('#sync-copy');
   const showBtn = $('#sync-show');
   const clearBtn = $('#sync-copied');
@@ -564,7 +755,7 @@ function wireSyncUI() {
     const text = pendingSummary();
     try {
       await navigator.clipboard.writeText(text);
-      toast('已复制，发给咕咕即可改 JSON 推 Pages');
+      toast(hasSyncUrl() ? '已复制（兜底；优先用自动同步）' : '已复制，发给咕咕即可改 JSON 推 Pages');
     } catch {
       $('#sync-panel').classList.remove('hidden');
       $('#sync-text').textContent = text;
@@ -582,6 +773,7 @@ function wireSyncUI() {
     renderSyncBar();
     toast('已清空本机同步队列（overlay 仍保留）');
   });
+  fillSyncForm();
 }
 
 renderMorning(); renderFollow(); renderDiary(); renderTodos(); renderSyncBar();
@@ -595,7 +787,7 @@ document.addEventListener('visibilitychange', () => {
 });
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 window.guguReset = () => {
-  [KEY, DAILY_CACHE_KEY, EXTRAS_CACHE_KEY, OVERLAY_KEY, LOCAL_TODOS_KEY, PENDING_KEY].forEach(k => localStorage.removeItem(k));
+  [KEY, DAILY_CACHE_KEY, EXTRAS_CACHE_KEY, OVERLAY_KEY, LOCAL_TODOS_KEY, PENDING_KEY, SYNC_CFG_KEY].forEach(k => localStorage.removeItem(k));
   location.reload();
 };
 })();

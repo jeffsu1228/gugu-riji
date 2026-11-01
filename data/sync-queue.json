@@ -3,12 +3,12 @@
   "date": "2026-10-30",
   "items": [
     {
-      "id": "ping",
-      "title": "咕咕日迹 · 连通性试发",
-      "section": "",
-      "done": false,
-      "action": "ping"
+      "id": "calendar-1",
+      "title": "今日日历／提醒：Outlook无事项；手机未连待补",
+      "section": "今日日历／私人行程",
+      "done": true,
+      "action": "toggle"
     }
   ],
-  "ts": "2026-11-01T16:37:48.645Z"
+  "ts": "2026-11-01T16:38:56.544Z"
 }

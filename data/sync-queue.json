@@ -3,12 +3,12 @@
   "date": "2026-10-30",
   "items": [
     {
-      "id": "ping",
-      "title": "咕咕日迹 · 连通性试发",
-      "section": "",
-      "done": false,
-      "action": "ping"
+      "id": "today-5",
+      "title": "公司三个制度：今日收部门传阅意见",
+      "section": "今日待办",
+      "done": true,
+      "action": "toggle"
     }
   ],
-  "ts": "2026-11-01T16:48:07.226Z"
+  "ts": "2026-11-01T16:48:36.065Z"
 }

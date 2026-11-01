@@ -162,7 +162,7 @@ mark{background:rgba(255,204,0,.45);color:inherit;border-radius:3px;padding:0 1p
 .sync-panel.hidden{display:none!important}
 .sync-panel pre{white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.45;margin:0 0 10px;max-height:220px;overflow:auto;color:var(--text)}
 .section-head-right{display:flex;align-items:center;gap:4px;margin-left:auto}
-.section-head .gear{margin-left:auto;width:32px;height:32px;border-radius:8px;font-size:18px;line-height:1;color:var(--sub);background:transparent;display:inline-flex;align-items:center;justify-content:center}
+.section-head .gear{margin-left:auto;min-width:44px;height:36px;padding:0 10px;border-radius:10px;font-size:15px;line-height:1;color:var(--blue);background:var(--fill);display:inline-flex;align-items:center;justify-content:center;gap:4px;font-weight:600}
 .section-head .gear:active{background:rgba(0,0,0,.06)}
 .section-head .count{margin-left:8px}
 .sync-settings{background:var(--card);border-radius:var(--r);padding:14px;margin:0 0 12px}

@@ -939,10 +939,22 @@ function wireSyncUI() {
   const gear = $('#sync-gear');
   const settings = $('#sync-settings');
   if (gear && settings) {
-    gear.addEventListener('click', () => {
-      settings.classList.toggle('hidden');
-      if (!settings.classList.contains('hidden')) fillSyncForm();
-    });
+    const openSync = (forceOpen) => {
+      const opening = forceOpen || settings.classList.contains('hidden');
+      if (forceOpen) settings.classList.remove('hidden');
+      else settings.classList.toggle('hidden');
+      if (!settings.classList.contains('hidden')) {
+        fillSyncForm();
+        toast('同步设置');
+        try { settings.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch {}
+      }
+    };
+    gear.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openSync(false); });
+    // 深链：?sync=1 或 #sync 直接打开（绕过点不动）
+    try {
+      const u = new URL(location.href);
+      if (u.searchParams.get('sync') === '1' || location.hash === '#sync') openSync(true);
+    } catch {}
   }
   const saveBtn = $('#sync-save');
   if (saveBtn) saveBtn.addEventListener('click', () => {

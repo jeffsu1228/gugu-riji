@@ -3,12 +3,12 @@
   "date": "2026-10-30",
   "items": [
     {
-      "id": "today-5",
-      "title": "公司三个制度：今日收部门传阅意见",
-      "section": "今日待办",
-      "done": true,
-      "action": "toggle"
+      "id": "ping",
+      "title": "咕咕日迹 · 连通性试发",
+      "section": "",
+      "done": false,
+      "action": "ping"
     }
   ],
-  "ts": "2026-11-01T16:46:42.924Z"
+  "ts": "2026-11-01T16:47:47.157Z"
 }

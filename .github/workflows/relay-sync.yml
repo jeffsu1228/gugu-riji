@@ -1,0 +1,39 @@
+name: Relay gugu-riji sync
+
+on:
+  push:
+    paths:
+      - "data/sync-queue.json"
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    # Skip placeholder / empty queues; skip if secrets missing
+    steps:
+      - uses: actions/checkout@v4
+      - name: Forward queue to Cursor webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.GUGU_WEBHOOK_URL }}
+          WEBHOOK_KEY: ${{ secrets.GUGU_WEBHOOK_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${WEBHOOK_URL:-}" ] || [ -z "${WEBHOOK_KEY:-}" ]; then
+            echo "Missing GUGU_WEBHOOK_URL or GUGU_WEBHOOK_KEY secrets"
+            exit 1
+          fi
+          if [ ! -f data/sync-queue.json ]; then
+            echo "No sync-queue.json"
+            exit 0
+          fi
+          COUNT=$(python3 -c 'import json; d=json.load(open("data/sync-queue.json")); print(len(d.get("items") or []))')
+          echo "items=$COUNT"
+          if [ "$COUNT" = "0" ]; then
+            echo "Empty queue — skip relay"
+            exit 0
+          fi
+          curl -fsS -X POST "$WEBHOOK_URL" \
+            -H "Authorization: Bearer $WEBHOOK_KEY" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data-binary @data/sync-queue.json \
+            -w "\nHTTP %{http_code}\n"

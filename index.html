@@ -39,14 +39,10 @@
     <div class="daily-source" id="daily-source"></div>
     <div id="sync-settings" class="sync-settings hidden">
       <label class="sync-field">
-        <span>同步地址</span>
-        <input type="url" id="sync-url" placeholder="粘贴 Routine 的 webhook 完整 URL" autocomplete="off" spellcheck="false">
+        <span>GitHub token</span>
+        <input type="password" id="sync-token" placeholder="粘贴 fine-grained token（仅本机保存）" autocomplete="off" spellcheck="false">
       </label>
-      <label class="sync-field">
-        <span>同步密钥 <em>（可选）</em></span>
-        <input type="password" id="sync-key" placeholder="若有 sender key 填这里" autocomplete="off" spellcheck="false">
-      </label>
-      <p class="sync-hint">从「咕咕日迹勾选同步」Routine 面板复制 webhook URL（及密钥）粘贴一次即可。密钥会以 <code>Authorization: Bearer</code> 头发送，同时附在查询参数 <code>?key=</code>。</p>
+      <p class="sync-hint">只读写 <code>jeffsu1228/gugu-riji</code> 的 Contents。勾选后 App 写入 <code>data/sync-queue.json</code>，仓库 Actions 再转发到咕咕 webhook（避开浏览器 CORS）。token 只存在本机，不进仓库。</p>
       <div class="sync-settings-acts">
         <button type="button" class="btn-primary" id="sync-save">保存</button>
         <button type="button" class="link" id="sync-test">试发一条</button>
@@ -69,7 +65,7 @@
       <button type="button" class="btn-primary" id="sync-copied">已发给咕咕 · 清空队列</button>
     </div>
     <div id="daily-root"></div>
-    <p class="footnote">左滑：推明天 / 转咕咕 · 勾选即同步（需先在 ⚙ 填 webhook）</p>
+    <p class="footnote">左滑：推明天 / 转咕咕 · 勾选即同步（需先在 ⚙ 填 GitHub token）</p>
   </section>
 
   <!-- 跟办 -->

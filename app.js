@@ -1,4 +1,4 @@
-/* 咕咕日迹 · 真日清单（rqd→daily）+ 真清收 + 工作日记全文（AES-GCM 加密，口令解锁）；勾选 → webhook 同步 */
+/* 咕咕日迹 · 真日清单（rqd→daily）+ 真清收 + 工作日记全文（AES-GCM 加密，口令解锁）；勾选 → GitHub Contents → Actions → webhook */
 (() => {
 const KEY = 'gugu-riji.v1';
 const DAILY_CACHE_KEY = 'gugu-riji.daily.cache.v1';
@@ -6,62 +6,24 @@ const EXTRAS_CACHE_KEY = 'gugu-riji.extras.cache.v1';
 const OVERLAY_KEY = 'gugu-riji.daily.overlay.v1';
 const LOCAL_TODOS_KEY = 'gugu-riji.daily.local.v1';
 const PENDING_KEY = 'gugu-riji.daily.pending.v1';
-const SYNC_CFG_KEY = 'gugu-riji.sync.v1';
-const $ = (s, el = document) => el.querySelector(s);
-const $$ = (s, el = document) => [...el.querySelectorAll(s)];
-const pad = n => String(n).padStart(2, '0');
-const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const addDays = (n, base = new Date()) => { const d = new Date(base); d.setDate(d.getDate() + n); return d; };
-const TODAY = ymd(new Date());
-const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
-function emptyDb() {
-  return {
-    morning: [],
-    morningNote: '周末无晨报待拍板；工作日由咕咕生成后同步。',
-    diary: [],
-    follow: {
-      clean: [], cleanNote: '',
-      node: [], nodeNote: '硬节点走提醒事项·粤路·硬节点，待授权后接入。',
-      gugu: [], guguNote: '',
-    },
-  };
-}
-let db;
-try {
-  db = JSON.parse(localStorage.getItem(KEY));
-  if (!db || typeof db !== 'object') db = emptyDb();
-  if (db.todos) delete db.todos; // 旧假待办不再使用
-  if (!db.follow) db.follow = emptyDb().follow;
-  if (!Array.isArray(db.morning)) db.morning = [];
-  if (!Array.isArray(db.diary)) db.diary = [];
-  db.diary = db.diary.filter(d => d.src !== '工作日记'); // 旧版明文摘录不再留在本机
-} catch { db = emptyDb(); }
-const save = () => localStorage.setItem(KEY, JSON.stringify(db));
-
-let daily = null;
-let overlay = {};
-let localTodos = {};
-try { overlay = JSON.parse(localStorage.getItem(OVERLAY_KEY)) || {}; } catch { overlay = {}; }
-try { localTodos = JSON.parse(localStorage.getItem(LOCAL_TODOS_KEY)) || {}; } catch { localTodos = {}; }
-let pending = [];
-try { pending = JSON.parse(localStorage.getItem(PENDING_KEY)) || []; } catch { pending = []; }
-if (!Array.isArray(pending)) pending = [];
+const SYNC_CFG_KEY = 'gugu-riji.sync.v2'; // v2: GitHub token 中转，不再存 webhook
 const DEFAULT_SYNC = {
-  url: 'https://api2.cursor.sh/automations/webhook/bacec434-c277-5510-a1eb-49b2a6cd1a03',
-  key: 'crsr_755a05d6d8729a87f3a3c80ce16a0488d5d2af9713b28e10f1cbe0291b8875a0',
+  owner: 'jeffsu1228',
+  repo: 'gugu-riji',
+  path: 'data/sync-queue.json',
+  token: '',
 };
-let syncCfg = { url: DEFAULT_SYNC.url, key: DEFAULT_SYNC.key };
+let syncCfg = { ...DEFAULT_SYNC };
 try {
   const raw = localStorage.getItem(SYNC_CFG_KEY);
   if (raw) {
     const sc = JSON.parse(raw);
     if (sc && typeof sc === 'object') {
-      // 用户曾保存过则覆盖默认；允许清空（显式保存空地址）
       syncCfg = {
-        url: String(sc.url != null ? sc.url : DEFAULT_SYNC.url).trim(),
-        key: String(sc.key != null ? sc.key : DEFAULT_SYNC.key),
+        owner: String(sc.owner || DEFAULT_SYNC.owner).trim() || DEFAULT_SYNC.owner,
+        repo: String(sc.repo || DEFAULT_SYNC.repo).trim() || DEFAULT_SYNC.repo,
+        path: String(sc.path || DEFAULT_SYNC.path).trim() || DEFAULT_SYNC.path,
+        token: String(sc.token != null ? sc.token : ''),
       };
     }
   }
@@ -69,8 +31,10 @@ try {
 const saveOverlay = () => localStorage.setItem(OVERLAY_KEY, JSON.stringify(overlay));
 const saveLocalTodos = () => localStorage.setItem(LOCAL_TODOS_KEY, JSON.stringify(localTodos));
 const savePending = () => localStorage.setItem(PENDING_KEY, JSON.stringify(pending));
-const saveSyncCfg = () => localStorage.setItem(SYNC_CFG_KEY, JSON.stringify(syncCfg));
-function hasSyncUrl() { return !!(syncCfg.url && /^https?:\/\//i.test(syncCfg.url)); }
+const saveSyncCfg = () => localStorage.setItem(SYNC_CFG_KEY, JSON.stringify({
+  owner: syncCfg.owner, repo: syncCfg.repo, path: syncCfg.path, token: syncCfg.token,
+}));
+function hasSyncToken() { return !!(syncCfg.token && syncCfg.token.trim().length >= 8); }
 function pushPending(entry) {
   pending.push({ ...entry, at: new Date().toISOString() });
   if (pending.length > 200) pending = pending.slice(-200);
@@ -80,12 +44,12 @@ function pushPending(entry) {
 function pendingSummary() {
   if (!pending.length) return '（无待同步勾选）';
   const date = (daily && daily.date) || TODAY;
-  const lines = [`【咕咕日迹 · 勾选反馈】日清单 ${date} · ${pending.length} 条（本机队列；无 webhook 时请发给咕咕）`];
+  const lines = [`【咕咕日迹 · 勾选反馈】日清单 ${date} · ${pending.length} 条（本机队列；未配 GitHub token 时请发给咕咕）`];
   pending.forEach((p, i) => {
     const mark = p.done ? '☑' : '☐';
     lines.push(`${i + 1}. ${mark} [${p.section || ''}] ${p.title || p.id}${p.act && p.act !== 'toggle' ? ' · ' + p.act : ''}`);
   });
-  lines.push('— 有 webhook 时 App 会自动 POST；失败才进此队列。');
+  lines.push('— 配好 token 后 App 会写入仓库 sync-queue，Actions 再转 webhook；失败才进此队列。');
   return lines.join('\n');
 }
 function buildWebhookBody(items, date) {
@@ -102,49 +66,69 @@ function buildWebhookBody(items, date) {
     ts: new Date().toISOString(),
   };
 }
-function webhookRequestUrl() {
-  const base = syncCfg.url.trim();
-  if (!syncCfg.key) return base;
-  try {
-    const u = new URL(base);
-    if (!u.searchParams.has('key')) u.searchParams.set('key', syncCfg.key);
-    return u.toString();
-  } catch {
-    const sep = base.includes('?') ? '&' : '?';
-    return base + sep + 'key=' + encodeURIComponent(syncCfg.key);
-  }
+function b64utf8(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  bytes.forEach(b => { bin += String.fromCharCode(b); });
+  return btoa(bin);
 }
-async function postWebhook(body) {
-  if (!hasSyncUrl()) throw new Error('no-url');
-  const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
-  if (syncCfg.key) {
-    headers.Authorization = 'Bearer ' + syncCfg.key;
-    headers['X-Api-Key'] = syncCfg.key;
+function ghContentsUrl() {
+  const o = encodeURIComponent(syncCfg.owner);
+  const r = encodeURIComponent(syncCfg.repo);
+  const p = String(syncCfg.path || DEFAULT_SYNC.path).split('/').map(encodeURIComponent).join('/');
+  return `https://api.github.com/repos/${o}/${r}/contents/${p}`;
+}
+async function postViaGitHub(body) {
+  if (!hasSyncToken()) throw new Error('no-token');
+  const token = syncCfg.token.trim();
+  const api = ghContentsUrl();
+  const headers = {
+    Accept: 'application/vnd.github+json',
+    Authorization: 'Bearer ' + token,
+    'X-GitHub-Api-Version': '2022-11-28',
+    'Content-Type': 'application/json',
+  };
+  let sha;
+  const getRes = await fetch(api, { headers, mode: 'cors', credentials: 'omit', cache: 'no-store' });
+  if (getRes.ok) {
+    const meta = await getRes.json();
+    sha = meta.sha;
+  } else if (getRes.status !== 404) {
+    throw new Error('GET ' + getRes.status);
   }
-  const res = await fetch(webhookRequestUrl(), {
-    method: 'POST',
+  const payload = {
+    message: 'chore(sync): gugu-riji checkins ' + (body.ts || new Date().toISOString()),
+    content: b64utf8(JSON.stringify(body, null, 2) + '\n'),
+    branch: 'main',
+  };
+  if (sha) payload.sha = sha;
+  const putRes = await fetch(api, {
+    method: 'PUT',
     headers,
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
     mode: 'cors',
     credentials: 'omit',
     cache: 'no-store',
   });
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  return res;
+  if (!putRes.ok) {
+    let detail = '';
+    try { detail = (await putRes.json()).message || ''; } catch {}
+    throw new Error('PUT ' + putRes.status + (detail ? ' ' + detail : ''));
+  }
+  return putRes;
 }
 async function syncEntries(entries, { silent } = {}) {
   if (!entries || !entries.length) return true;
-  if (!hasSyncUrl()) {
+  if (!hasSyncToken()) {
     renderSyncBar();
     return false;
   }
   const date = entries[0].date || (daily && daily.date) || TODAY;
   const body = buildWebhookBody(entries, date);
   try {
-    await postWebhook(body);
+    await postViaGitHub(body);
     const ids = new Set(entries.map(e => (e.at || '') + '|' + e.id + '|' + (e.act || '')));
     pending = pending.filter(p => !ids.has((p.at || '') + '|' + p.id + '|' + (p.act || '')));
-    // also drop by identity if at missing
     const sent = new Set(entries.map(e => e.id + '|' + (e.act || '') + '|' + String(!!e.done)));
     pending = pending.filter(p => !sent.has(p.id + '|' + (p.act || '') + '|' + String(!!p.done)));
     savePending();
@@ -152,6 +136,7 @@ async function syncEntries(entries, { silent } = {}) {
     if (!silent) toast('已同步');
     return true;
   } catch (err) {
+    console.warn('gugu-riji sync', err);
     renderSyncBar();
     if (!silent) toast('同步失败，已记在本地');
     return false;
@@ -163,11 +148,11 @@ function queueAndSync(entry) {
   if (pending.length > 200) pending = pending.slice(-200);
   savePending();
   renderSyncBar();
-  if (hasSyncUrl()) {
+  if (hasSyncToken()) {
     syncEntries([e]);
   } else {
     toast(entry.act === 'toggle'
-      ? (entry.done ? '已勾（本机；请先在 ⚙ 填同步地址）' : '已恢复未完成（本机）')
+      ? (entry.done ? '已勾（本机；请先在 ⚙ 填 GitHub token）' : '已恢复未完成（本机）')
       : (entry.act === 'tmr' ? '已推明天（本机；未配置同步）' : '已转咕咕（本机；未配置同步）'));
   }
 }
@@ -182,7 +167,7 @@ function renderSyncBar() {
     return;
   }
   bar.classList.remove('hidden');
-  const configured = hasSyncUrl();
+  const configured = hasSyncToken();
   $('#sync-count').textContent = configured
     ? `有 ${pending.length} 条同步失败 / 待重试`
     : `有 ${pending.length} 条未同步（未配置地址，可复制给咕咕）`;
@@ -454,7 +439,7 @@ function onTodoAction(e) {
       section,
       src,
     });
-    if (hasSyncUrl()) {
+    if (hasSyncToken()) {
       // toast comes from syncEntries
     }
     setTimeout(renderTodos, 200);
@@ -942,13 +927,12 @@ async function loadExtras() {
 }
 
 function fillSyncForm() {
-  const u = $('#sync-url'); const k = $('#sync-key');
-  if (u) u.value = syncCfg.url || '';
-  if (k) k.value = syncCfg.key || '';
+  const t = $('#sync-token');
+  if (t) t.value = syncCfg.token || '';
   const st = $('#sync-status');
   if (st) {
     st.dataset.locked = '';
-    st.textContent = hasSyncUrl() ? '已配置自动同步' : '未配置 · 勾选仅本机';
+    st.textContent = hasSyncToken() ? '已配置 GitHub 同步' : '未配置 · 勾选仅本机';
   }
 }
 function wireSyncUI() {
@@ -963,40 +947,45 @@ function wireSyncUI() {
   const saveBtn = $('#sync-save');
   if (saveBtn) saveBtn.addEventListener('click', () => {
     syncCfg = {
-      url: ($('#sync-url')?.value || '').trim(),
-      key: ($('#sync-key')?.value || ''),
+      owner: DEFAULT_SYNC.owner,
+      repo: DEFAULT_SYNC.repo,
+      path: DEFAULT_SYNC.path,
+      token: ($('#sync-token')?.value || '').trim(),
     };
     saveSyncCfg();
     const st = $('#sync-status');
-    if (st) { st.dataset.locked = ''; st.textContent = hasSyncUrl() ? '已保存 · 勾选即同步' : '已保存 · 仍无地址'; }
-    toast(hasSyncUrl() ? '同步地址已保存' : '已保存（未填有效 http(s) 地址）');
+    if (st) { st.dataset.locked = ''; st.textContent = hasSyncToken() ? '已保存 · 勾选即同步' : '已保存 · 仍无 token'; }
+    toast(hasSyncToken() ? 'GitHub token 已保存（仅本机）' : '已保存（未填 token）');
     renderSyncBar();
-    if (hasSyncUrl() && pending.length) syncEntries([...pending], { silent: false });
+    if (hasSyncToken() && pending.length) syncEntries([...pending], { silent: false });
   });
   const testBtn = $('#sync-test');
   if (testBtn) testBtn.addEventListener('click', async () => {
     syncCfg = {
-      url: ($('#sync-url')?.value || '').trim() || syncCfg.url,
-      key: ($('#sync-key')?.value || '') || syncCfg.key,
+      owner: DEFAULT_SYNC.owner,
+      repo: DEFAULT_SYNC.repo,
+      path: DEFAULT_SYNC.path,
+      token: ($('#sync-token')?.value || '').trim() || syncCfg.token,
     };
-    if (!hasSyncUrl()) return toast('请先填写同步地址');
+    if (!hasSyncToken()) return toast('请先填写 GitHub token');
     const st = $('#sync-status');
     if (st) { st.dataset.locked = '1'; st.textContent = '试发中…'; }
     try {
-      await postWebhook(buildWebhookBody([{
+      await postViaGitHub(buildWebhookBody([{
         id: 'ping', title: '咕咕日迹 · 连通性试发', section: '', done: false, act: 'ping',
       }], (daily && daily.date) || TODAY));
-      if (st) { st.dataset.locked = ''; st.textContent = '试发成功'; }
+      if (st) { st.dataset.locked = ''; st.textContent = '试发成功（已写入仓库，Actions 将转 webhook）'; }
       toast('已同步');
-    } catch {
+    } catch (err) {
       if (st) { st.dataset.locked = ''; st.textContent = '试发失败'; }
+      console.warn('gugu-riji sync test', err);
       toast('同步失败，已记在本地');
     }
   });
   const retryBtn = $('#sync-retry');
   if (retryBtn) retryBtn.addEventListener('click', () => {
     if (!pending.length) return toast('没有待同步条目');
-    if (!hasSyncUrl()) return toast('请先在 ⚙ 填写同步地址');
+    if (!hasSyncToken()) return toast('请先在 ⚙ 填写 GitHub token');
     syncEntries([...pending]);
   });
   const copyBtn = $('#sync-copy');
@@ -1006,7 +995,7 @@ function wireSyncUI() {
     const text = pendingSummary();
     try {
       await navigator.clipboard.writeText(text);
-      toast(hasSyncUrl() ? '已复制（兜底；优先用自动同步）' : '已复制，发给咕咕即可改 JSON 推 Pages');
+      toast(hasSyncToken() ? '已复制（兜底；优先用自动同步）' : '已复制，发给咕咕即可改清单');
     } catch {
       $('#sync-panel').classList.remove('hidden');
       $('#sync-text').textContent = text;

@@ -4,7 +4,7 @@
   "source": "日清单-2026-10-30.xlsx",
   "rqd": "rqd-2026-10-30.json",
   "footer": "周五全量。今日待办14项＝周五三事（审查评估／续聘沟通／人员表）＋三制度收意见节点＋站立顺延10项。10/29已勾：退极米（生活）。资料：六台电脑与两部手机均未连，据箱上《2026年10月29日工作日记》维护；Outlook今日无事件；手机日历／苹果提醒未连待补；Excel待电脑上线后落盘。",
-  "updatedAt": "2026-10-31T23:53:49+08:00",
+  "updatedAt": "2026-11-02T00:41:30+08:00",
   "sections": [
     {
       "id": "today",
@@ -329,15 +329,7 @@
     {
       "id": "calendar",
       "name": "今日日历／私人行程",
-      "items": [
-        {
-          "id": "calendar-1",
-          "seq": 1,
-          "done": false,
-          "title": "今日日历／提醒：Outlook无事项；手机未连待补",
-          "note": "Outlook（jeff1228@outlook.com默认日历）10/30无行程。手机日历与苹果提醒事项未连上，本部分待补"
-        }
-      ]
+      "items": []
     },
     {
       "id": "life",
@@ -369,8 +361,16 @@
           "done": true,
           "title": "沂南农村公路招标及资金批文延时（取消）",
           "note": "10/27确认非本人工作"
+        },
+        {
+          "id": "calendar-1",
+          "seq": 3,
+          "done": true,
+          "title": "今日日历／提醒：Outlook无事项；手机未连待补",
+          "note": "Outlook（jeff1228@outlook.com默认日历）10/30无行程。手机日历与苹果提醒事项未连上，本部分待补｜App勾选已同步 2026-11-02"
         }
       ]
     }
-  ]
+  ],
+  "syncNote": "webhook toggle calendar-1 done=true @ 2026-11-01T16:38:56.544Z"
 }

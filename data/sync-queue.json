@@ -1,7 +1,14 @@
 {
   "source": "gugu-riji",
-  "date": null,
-  "items": [],
-  "ts": null,
-  "note": "placeholder; App overwrites on check-in"
+  "date": "2026-10-30",
+  "items": [
+    {
+      "id": "ping",
+      "title": "咕咕日迹 · 连通性试发",
+      "section": "",
+      "done": false,
+      "action": "ping"
+    }
+  ],
+  "ts": "2026-11-01T16:26:41.650Z"
 }

@@ -7,6 +7,48 @@ const OVERLAY_KEY = 'gugu-riji.daily.overlay.v1';
 const LOCAL_TODOS_KEY = 'gugu-riji.daily.local.v1';
 const PENDING_KEY = 'gugu-riji.daily.pending.v1';
 const SYNC_CFG_KEY = 'gugu-riji.sync.v2'; // v2: GitHub token 中转，不再存 webhook
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const pad = n => String(n).padStart(2, '0');
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const addDays = (n, base = new Date()) => { const d = new Date(base); d.setDate(d.getDate() + n); return d; };
+const TODAY = ymd(new Date());
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function emptyDb() {
+  return {
+    morning: [],
+    morningNote: '周末无晨报待拍板；工作日由咕咕生成后同步。',
+    diary: [],
+    follow: {
+      clean: [], cleanNote: '',
+      node: [], nodeNote: '硬节点走提醒事项·粤路·硬节点，待授权后接入。',
+      gugu: [], guguNote: '',
+    },
+  };
+}
+let db;
+try {
+  db = JSON.parse(localStorage.getItem(KEY));
+  if (!db || typeof db !== 'object') db = emptyDb();
+  if (db.todos) delete db.todos;
+  if (!db.follow) db.follow = emptyDb().follow;
+  if (!Array.isArray(db.morning)) db.morning = [];
+  if (!Array.isArray(db.diary)) db.diary = [];
+  db.diary = db.diary.filter(d => d.src !== '工作日记');
+} catch { db = emptyDb(); }
+const save = () => localStorage.setItem(KEY, JSON.stringify(db));
+
+let daily = null;
+let overlay = {};
+let localTodos = {};
+try { overlay = JSON.parse(localStorage.getItem(OVERLAY_KEY)) || {}; } catch { overlay = {}; }
+try { localTodos = JSON.parse(localStorage.getItem(LOCAL_TODOS_KEY)) || {}; } catch { localTodos = {}; }
+let pending = [];
+try { pending = JSON.parse(localStorage.getItem(PENDING_KEY)) || []; } catch { pending = []; }
+if (!Array.isArray(pending)) pending = [];
+
 const DEFAULT_SYNC = {
   owner: 'jeffsu1228',
   repo: 'gugu-riji',
@@ -35,8 +77,6 @@ const saveSyncCfg = () => localStorage.setItem(SYNC_CFG_KEY, JSON.stringify({
   owner: syncCfg.owner, repo: syncCfg.repo, path: syncCfg.path, token: syncCfg.token,
 }));
 function hasSyncToken() { return !!(syncCfg.token && syncCfg.token.trim().length >= 8); }
-const $ = (sel, root = document) => root.querySelector(sel);
-const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 function pushPending(entry) {
   pending.push({ ...entry, at: new Date().toISOString() });
   if (pending.length > 200) pending = pending.slice(-200);

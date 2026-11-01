@@ -1,5 +1,5 @@
 // 咕咕日迹 SW v7：壳可缓存；data/*.json 网络优先（随时同步）；diary.enc.json 网络优先＋离线回退缓存（密文）
-const CACHE = 'gugu-riji-v8';
+const CACHE = 'gugu-riji-v9';
 const SHELL = ['./', './index.html', './style.css', './app.js', './manifest.json',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 self.addEventListener('install', e => {

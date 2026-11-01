@@ -35,6 +35,8 @@ const saveSyncCfg = () => localStorage.setItem(SYNC_CFG_KEY, JSON.stringify({
   owner: syncCfg.owner, repo: syncCfg.repo, path: syncCfg.path, token: syncCfg.token,
 }));
 function hasSyncToken() { return !!(syncCfg.token && syncCfg.token.trim().length >= 8); }
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 function pushPending(entry) {
   pending.push({ ...entry, at: new Date().toISOString() });
   if (pending.length > 200) pending = pending.slice(-200);

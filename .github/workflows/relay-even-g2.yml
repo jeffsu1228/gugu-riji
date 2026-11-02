@@ -1,0 +1,77 @@
+name: Relay Even G2 inbox
+
+on:
+  push:
+    paths:
+      - "data/even-g2-inbox.json"
+      - ".github/workflows/relay-even-g2.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Forward inbox to Even G2 webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.EVEN_G2_WEBHOOK_URL }}
+          WEBHOOK_KEY: ${{ secrets.EVEN_G2_WEBHOOK_KEY }}
+        run: |
+          set -euo pipefail
+          if [ ! -f data/even-g2-inbox.json ]; then
+            echo "No even-g2-inbox.json"
+            exit 0
+          fi
+          TEXT=$(python3 -c 'import json; d=json.load(open("data/even-g2-inbox.json")); print((d.get("text") or "").strip())')
+          echo "text_len=${#TEXT}"
+          if [ -z "$TEXT" ]; then
+            echo "Empty text — skip relay"
+            exit 0
+          fi
+          if [ -z "${WEBHOOK_URL:-}" ] || [ -z "${WEBHOOK_KEY:-}" ]; then
+            echo "Missing EVEN_G2_WEBHOOK_URL or EVEN_G2_WEBHOOK_KEY secrets"
+            exit 1
+          fi
+          # KEY may be raw token or "Bearer …"; normalize to Bearer
+          case "$WEBHOOK_KEY" in
+            Bearer\ *|bearer\ *) AUTH="$WEBHOOK_KEY" ;;
+            *) AUTH="Bearer $WEBHOOK_KEY" ;;
+          esac
+          curl -fsS -X POST "$WEBHOOK_URL" \
+            -H "Authorization: $AUTH" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            --data-binary @data/even-g2-inbox.json \
+            -w "\nHTTP %{http_code}\n"
+
+      - name: Clear inbox text (anti-replay)
+        if: success()
+        run: |
+          set -euo pipefail
+          TEXT=$(python3 -c 'import json; d=json.load(open("data/even-g2-inbox.json")); print((d.get("text") or "").strip())')
+          if [ -z "$TEXT" ]; then
+            echo "Already empty — no clear commit"
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("data/even-g2-inbox.json")
+          d = json.loads(p.read_text())
+          d["text"] = ""
+          d["ts"] = ""
+          d["processed"] = True
+          p.write_text(json.dumps(d, ensure_ascii=False, indent=2) + "\n")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/even-g2-inbox.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "chore(even-g2): clear inbox after relay"
+          git push

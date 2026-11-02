@@ -4,7 +4,7 @@
   "source": "日清单-2026-11-02.xlsx",
   "rqd": "rqd-2026-11-02.json",
   "footer": "周一全量不砍项。资料：《2026年10月30日工作日记》＋10/30日更／App勾选；10/31、11/1无工作日记。Outlook今日无事项；iPhone（74671950）未连，日历／提醒读不到。Excel落盘 D:\\经营财务部\\0 资料库\\日清单\\。",
-  "updatedAt": "2026-11-02 12:51+08",
+  "updatedAt": "2026-11-02T12:52:18+08:00",
   "sections": [
     {
       "id": "today",
@@ -308,15 +308,7 @@
     {
       "id": "calendar",
       "name": "今日日历／私人行程",
-      "items": [
-        {
-          "id": "calendar-1",
-          "seq": 1,
-          "done": false,
-          "title": "今日日历／提醒：Outlook无事项；手机未连读不到",
-          "note": "Outlook（jeff1228@outlook.com默认日历）11/2无行程。iPhone19,7（74671950）与 iPhone 17 Pro Max 均未连，MobileReadCalendar／IOSReadReminders 不可用，日历与苹果提醒读不到（非待补空挂，是实读失败）"
-        }
-      ]
+      "items": []
     },
     {
       "id": "life",
@@ -335,6 +327,13 @@
       "id": "done",
       "name": "已勾（备查）",
       "items": [
+        {
+          "id": "calendar-1",
+          "seq": 1,
+          "done": true,
+          "title": "今日日历／提醒：Outlook无事项；手机未连读不到",
+          "note": "Outlook（jeff1228@outlook.com默认日历）11/2无行程。iPhone19,7（74671950）与 iPhone 17 Pro Max 均未连，MobileReadCalendar／IOSReadReminders 不可用，日历与苹果提醒读不到（非待补空挂，是实读失败）"
+        },
         {
           "id": "today-1",
           "seq": 1,
